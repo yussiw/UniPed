@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_aero">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingStart="32dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="32dp"
+        android:paddingBottom="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingBottom="6dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-light"
+                android:shadowColor="#CC000000"
+                android:shadowDx="0"
+                android:shadowDy="2"
+                android:shadowRadius="6"
+                android:text="Arquivos"
+                android:textColor="#FFFFFF"
+                android:textSize="24sp" />
+
+            <TextView
+                android:id="@+id/fmPath"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="20dp"
+                android:layout_weight="1"
+                android:ellipsize="start"
+                android:gravity="end"
+                android:maxLines="1"
+                android:textColor="#DDFFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:id="@+id/fmUp"
+                style="@style/FmBtn"
+                android:text="Subir" />
+
+            <TextView
+                android:id="@+id/fmNewFolder"
+                style="@style/FmBtn"
+                android:text="Nova pasta" />
+
+            <TextView
+                android:id="@+id/fmNewFile"
+                style="@style/FmBtn"
+                android:text="Novo arquivo" />
+
+            <TextView
+                android:id="@+id/fmDownload"
+                style="@style/FmBtn"
+                android:text="Baixar" />
+
+            <TextView
+                android:id="@+id/fmPaste"
+                style="@style/FmBtn"
+                android:text="Colar aqui"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/fmRefresh"
+                style="@style/FmBtn"
+                android:text="Atualizar" />
+
+            <TextView
+                android:id="@+id/fmStorage"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:gravity="end"
+                android:maxLines="1"
+                android:textColor="#DDFFFFFF"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="@drawable/glass_panel">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/fmList"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:padding="12dp" />
+
+            <TextView
+                android:id="@+id/fmEmpty"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:shadowColor="#CC000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:text="Pasta vazia"
+                android:textColor="#CCFFFFFF"
+                android:textSize="18sp"
+                android:visibility="gone" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:id="@+id/fmStatusBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/fmStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/fm_btn_bg"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="8dp"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+
+            <ProgressBar
+                android:id="@+id/fmProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="8dp"
+                android:layout_marginTop="4dp"
+                android:max="100" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:text="OK: abrir  ·  segurar OK ou MENU: opções (renomear, copiar, mover, excluir)  ·  VOLTAR: subir pasta"
+            android:textColor="#BBFFFFFF"
+            android:textSize="12sp" />
+    </LinearLayout>
+</FrameLayout>

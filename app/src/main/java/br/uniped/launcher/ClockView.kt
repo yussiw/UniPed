@@ -1,6 +1,7 @@
 package br.uniped.launcher
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
@@ -14,7 +15,11 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
-/** Relógio analógico estilo gadget do Windows Vista (atualiza 1x por segundo). */
+/**
+ * Relógio analógico estilo gadget do Windows Vista.
+ * O mostrador e o brilho de vidro são desenhados uma vez só (em bitmap);
+ * a cada segundo só os ponteiros são redesenhados.
+ */
 class ClockView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
@@ -22,10 +27,14 @@ class ClockView @JvmOverloads constructor(
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val oval = RectF()
+    private var faceBmp: Bitmap? = null
+    private var glossBmp: Bitmap? = null
+
     private val ticker = object : Runnable {
         override fun run() {
             invalidate()
-            postDelayed(this, 1000)
+            // alinha na virada do segundo
+            postDelayed(this, 1000L - (System.currentTimeMillis() % 1000L) + 5L)
         }
     }
 
@@ -40,25 +49,25 @@ class ClockView @JvmOverloads constructor(
         super.onDetachedFromWindow()
     }
 
-    private fun hand(
-        c: Canvas, cx: Float, cy: Float, deg: Float,
-        len: Float, tail: Float, width: Float, color: Int
-    ) {
-        val rad = Math.toRadians((deg - 90f).toDouble())
-        val dx = cos(rad).toFloat()
-        val dy = sin(rad).toFloat()
-        paint.shader = null
-        paint.style = Paint.Style.STROKE
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.strokeWidth = width
-        paint.color = color
-        c.drawLine(cx - dx * tail, cy - dy * tail, cx + dx * len, cy + dy * len, paint)
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        faceBmp?.recycle()
+        glossBmp?.recycle()
+        faceBmp = null
+        glossBmp = null
+        if (w <= 0 || h <= 0) return
+        val face = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        paintFace(Canvas(face), w, h)
+        faceBmp = face
+        val gloss = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        paintGloss(Canvas(gloss), w, h)
+        glossBmp = gloss
     }
 
-    override fun onDraw(c: Canvas) {
-        val cx = width / 2f
-        val cy = height / 2f
-        val r = min(width, height) / 2f - 1f
+    private fun paintFace(c: Canvas, w: Int, h: Int) {
+        val cx = w / 2f
+        val cy = h / 2f
+        val r = min(w, h) / 2f - 1f
         if (r <= 0f) return
 
         // aro escuro
@@ -93,6 +102,47 @@ class ClockView @JvmOverloads constructor(
             val r2 = r * 0.80f
             c.drawLine(cx + dx * r1, cy + dy * r1, cx + dx * r2, cy + dy * r2, paint)
         }
+        paint.shader = null
+    }
+
+    private fun paintGloss(c: Canvas, w: Int, h: Int) {
+        val cx = w / 2f
+        val cy = h / 2f
+        val r = min(w, h) / 2f - 1f
+        if (r <= 0f) return
+        paint.style = Paint.Style.FILL
+        oval.set(cx - r * 0.78f, cy - r * 0.86f, cx + r * 0.78f, cy + r * 0.08f)
+        paint.shader = LinearGradient(
+            0f, oval.top, 0f, oval.bottom,
+            0x70FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP
+        )
+        c.drawOval(oval, paint)
+        paint.shader = null
+    }
+
+    private fun hand(
+        c: Canvas, cx: Float, cy: Float, deg: Float,
+        len: Float, tail: Float, width: Float, color: Int
+    ) {
+        val rad = Math.toRadians((deg - 90f).toDouble())
+        val dx = cos(rad).toFloat()
+        val dy = sin(rad).toFloat()
+        paint.shader = null
+        paint.style = Paint.Style.STROKE
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeWidth = width
+        paint.color = color
+        c.drawLine(cx - dx * tail, cy - dy * tail, cx + dx * len, cy + dy * len, paint)
+    }
+
+    override fun onDraw(c: Canvas) {
+        val face = faceBmp ?: return
+        val cx = width / 2f
+        val cy = height / 2f
+        val r = min(width, height) / 2f - 1f
+        if (r <= 0f) return
+
+        c.drawBitmap(face, 0f, 0f, null)
 
         // ponteiros
         val cal = Calendar.getInstance()
@@ -110,12 +160,6 @@ class ClockView @JvmOverloads constructor(
         c.drawCircle(cx, cy, r * 0.055f, paint)
 
         // brilho de vidro
-        oval.set(cx - r * 0.78f, cy - r * 0.86f, cx + r * 0.78f, cy + r * 0.08f)
-        paint.shader = LinearGradient(
-            0f, oval.top, 0f, oval.bottom,
-            0x70FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP
-        )
-        c.drawOval(oval, paint)
-        paint.shader = null
+        glossBmp?.let { c.drawBitmap(it, 0f, 0f, null) }
     }
 }

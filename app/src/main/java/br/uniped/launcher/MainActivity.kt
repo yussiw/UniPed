@@ -7,6 +7,9 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.media.AudioAttributes
 import android.media.SoundPool
@@ -39,7 +42,6 @@ import androidx.recyclerview.widget.RecyclerView
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.random.Random
 
 data class AppItem(val label: String, val icon: Drawable, val intent: Intent)
 
@@ -60,12 +62,14 @@ fun popOnFocus(v: View, scale: Float, onFocus: (() -> Unit)? = null) {
 /**
  * Sons da interface, bem baixinhos.
  * Para mudar o volume, ajuste TICK_VOL e INTRO_VOL (0.0 a 1.0).
+ * O "tick" SEMPRE toca com a mesma velocidade (pitch fixo = 1.0).
  */
 class UiSounds(context: Context) {
 
     companion object {
         const val TICK_VOL = 0.18f
         const val INTRO_VOL = 0.30f
+        private const val TICK_GAP_MS = 60L
     }
 
     private val pool: SoundPool
@@ -107,10 +111,10 @@ class UiSounds(context: Context) {
     fun tick() {
         if (!tickReady) return
         val now = SystemClock.uptimeMillis()
-        if (now - lastTick < 55) return
+        if (now - lastTick < TICK_GAP_MS) return
         lastTick = now
-        val rate = 0.96f + Random.nextFloat() * 0.08f
-        pool.play(tickId, TICK_VOL, TICK_VOL, 1, 0, rate)
+        // rate 1f = pitch original, sem variação aleatória
+        pool.play(tickId, TICK_VOL, TICK_VOL, 1, 0, 1f)
     }
 
     fun release() {
@@ -131,13 +135,20 @@ class MainActivity : Activity() {
     private var appsShown = false
     private var contentStartAt = 0L
     private var tickAfter = 0L
+    private var iconPx = 0
     private lateinit var sounds: UiSounds
+
+    // Cache de apps (só a thread do executor mexe aqui)
+    private val appCache = HashMap<String, AppItem>()
+
+    // Último texto/cor mostrados, para não refazer layout à toa
+    private var lastNetColor = 0
 
     private val handler = Handler(Looper.getMainLooper())
     private val statusTask = object : Runnable {
         override fun run() {
             updateStatus()
-            handler.postDelayed(this, 5000)
+            handler.postDelayed(this, 10000)
         }
     }
 
@@ -160,18 +171,25 @@ class MainActivity : Activity() {
         }
 
         setContentView(R.layout.activity_main)
+        // O layout já cobre a tela toda: tira o fundo padrão da janela (menos overdraw)
+        window.setBackgroundDrawable(null)
         hideSystemBars()
         sounds = UiSounds(this)
+        bakeBackground()
 
         // Tamanho do ícone proporcional à tela (menor no celular, maior na TV)
         val dm = resources.displayMetrics
         val usable = dm.widthPixels - 200 * dm.density
-        val iconPx = (usable / columns * 0.5f).toInt()
+        iconPx = (usable / columns * 0.5f).toInt()
         adapter = AppAdapter(iconPx, { item, v -> startApp(item, v) }, { tick() })
 
         val grid = findViewById<RecyclerView>(R.id.grid)
         grid.layoutManager = GridLayoutManager(this, columns)
         grid.adapter = adapter
+        grid.setHasFixedSize(true)
+        grid.itemAnimator = null
+        grid.setItemViewCacheSize(24)
+        grid.overScrollMode = View.OVER_SCROLL_NEVER
 
         // Som de "scroll" ao arrastar a lista com o dedo
         grid.addOnScrollListener(object : RecyclerView.OnScrollListener() {
@@ -199,8 +217,10 @@ class MainActivity : Activity() {
         bindQuick(R.id.qBt, Settings.ACTION_BLUETOOTH_SETTINGS)
         bindQuick(R.id.qSound, Settings.ACTION_SOUND_SETTINGS)
         bindQuick(R.id.qDisplay, Settings.ACTION_DISPLAY_SETTINGS)
-        bindQuick(R.id.qStorage, Settings.ACTION_INTERNAL_STORAGE_SETTINGS)
         bindQuick(R.id.qApps, Settings.ACTION_APPLICATION_SETTINGS)
+        // Armazenamento agora abre o gerenciador de arquivos do UniPed
+        findViewById<View>(R.id.qStorage).setOnClickListener { openFiles() }
+        findViewById<View>(R.id.diskStatus).setOnClickListener { openFiles() }
         findViewById<View>(R.id.netStatus).setOnClickListener {
             openSettings(Settings.ACTION_WIFI_SETTINGS)
         }
@@ -219,6 +239,34 @@ class MainActivity : Activity() {
         } else {
             layer.visibility = View.GONE
         }
+    }
+
+    /**
+     * Desenha o fundo Aero (gradientes + vetor) UMA vez num bitmap e usa ele como fundo.
+     * Visual idêntico, mas a GPU fraca da TV box só pinta uma textura por quadro.
+     */
+    private fun bakeBackground() {
+        val root = findViewById<ViewGroup>(android.R.id.content).getChildAt(0) ?: return
+        val dm = resources.displayMetrics
+        val scale = minOf(1f, 1280f / dm.widthPixels)
+        val w = (dm.widthPixels * scale).toInt()
+        val h = (dm.heightPixels * scale).toInt()
+        if (w <= 0 || h <= 0) return
+        Thread {
+            try {
+                val d = getDrawable(R.drawable.bg_aero)
+                if (d != null) {
+                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    d.setBounds(0, 0, w, h)
+                    d.draw(Canvas(bmp))
+                    runOnUiThread {
+                        if (!isDestroyed) root.background = BitmapDrawable(resources, bmp)
+                    }
+                }
+            } catch (_: Throwable) {
+                // se falhar, continua com o fundo original
+            }
+        }.start()
     }
 
     // ---------- Intro ----------
@@ -326,7 +374,7 @@ class MainActivity : Activity() {
         return super.onKeyDown(keyCode, event)
     }
 
-    // ---------- Configurações ----------
+    // ---------- Configurações / arquivos ----------
 
     private fun bindQuick(id: Int, action: String) {
         findViewById<View>(id).setOnClickListener { openSettings(action) }
@@ -341,7 +389,18 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun openFiles() {
+        try {
+            startActivity(Intent(this, FilesActivity::class.java))
+        } catch (_: Exception) {
+        }
+    }
+
     // ---------- Status (rede, disco, RAM) ----------
+
+    private fun setIfChanged(tv: TextView, s: String) {
+        if (tv.text.toString() != s) tv.text = s
+    }
 
     private fun updateStatus() {
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -368,26 +427,49 @@ class MainActivity : Activity() {
             }
         }
         val net = findViewById<TextView>(R.id.netStatus)
-        net.text = text
-        net.compoundDrawableTintList = ColorStateList.valueOf(color)
+        setIfChanged(net, text)
+        if (color != lastNetColor) {
+            lastNetColor = color
+            net.compoundDrawableTintList = ColorStateList.valueOf(color)
+        }
 
         val stat = StatFs(Environment.getDataDirectory().path)
-        findViewById<TextView>(R.id.diskStatus).text =
+        setIfChanged(
+            findViewById(R.id.diskStatus),
             "Disco: " + Formatter.formatFileSize(this, stat.availableBytes) + " livres"
+        )
 
         val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val mi = ActivityManager.MemoryInfo()
         am.getMemoryInfo(mi)
-        findViewById<TextView>(R.id.ramStatus).text =
+        setIfChanged(
+            findViewById(R.id.ramStatus),
             "RAM: " + Formatter.formatFileSize(this, mi.availMem) + " livre"
+        )
     }
 
     // ---------- Apps ----------
+
+    // Redesenha o ícone já no tamanho exato da grade (ícones adaptativos/vetoriais
+    // pesam na GPU fraca; um bitmap pequeno é bem mais barato de desenhar).
+    private fun scaledIcon(d: Drawable): Drawable {
+        val size = iconPx
+        if (size <= 0) return d
+        return try {
+            val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            d.setBounds(0, 0, size, size)
+            d.draw(Canvas(bmp))
+            BitmapDrawable(resources, bmp)
+        } catch (_: Throwable) {
+            d
+        }
+    }
 
     private fun loadApps() {
         executor.execute {
             val pm = packageManager
             val found = LinkedHashMap<String, AppItem>()
+            val live = HashSet<String>()
 
             // Leanback primeiro (apps de TV), depois apps comuns
             for (category in listOf(Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER)) {
@@ -395,13 +477,25 @@ class MainActivity : Activity() {
                 for (info in pm.queryIntentActivities(query, 0)) {
                     val pkg = info.activityInfo.packageName
                     if (pkg == packageName || found.containsKey(pkg)) continue
-                    val launch = Intent(Intent.ACTION_MAIN)
-                        .addCategory(category)
-                        .setClassName(pkg, info.activityInfo.name)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    found[pkg] = AppItem(info.loadLabel(pm).toString(), info.loadIcon(pm), launch)
+                    val key = pkg + "/" + info.activityInfo.name
+                    live.add(key)
+                    val item = appCache[key] ?: run {
+                        val launch = Intent(Intent.ACTION_MAIN)
+                            .addCategory(category)
+                            .setClassName(pkg, info.activityInfo.name)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        val made = AppItem(
+                            info.loadLabel(pm).toString(),
+                            scaledIcon(info.loadIcon(pm)),
+                            launch
+                        )
+                        appCache[key] = made
+                        made
+                    }
+                    found[pkg] = item
                 }
             }
+            appCache.keys.retainAll(live)
 
             val sorted = found.values.sortedBy { it.label.lowercase() }
             runOnUiThread {

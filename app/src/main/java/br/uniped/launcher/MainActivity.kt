@@ -165,7 +165,7 @@ class MainActivity : Activity() {
 
         // Tamanho do ícone proporcional à tela (menor no celular, maior na TV)
         val dm = resources.displayMetrics
-        val usable = dm.widthPixels - (80 + 32) * dm.density
+        val usable = dm.widthPixels - 200 * dm.density
         val iconPx = (usable / columns * 0.5f).toInt()
         adapter = AppAdapter(iconPx, { item, v -> startApp(item, v) }, { tick() })
 

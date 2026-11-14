@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.drawable.Drawable
+import android.media.AudioAttributes
+import android.media.SoundPool
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
@@ -35,20 +37,84 @@ import android.widget.TextView
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import java.util.concurrent.Executors
+import kotlin.math.abs
 import kotlin.math.max
+import kotlin.random.Random
 
 data class AppItem(val label: String, val icon: Drawable, val intent: Intent)
 
 /** Efeito de "pulinho" ao receber foco (leve para GPU fraca: só escala). */
-fun popOnFocus(v: View, scale: Float) {
+fun popOnFocus(v: View, scale: Float, onFocus: (() -> Unit)? = null) {
     v.setOnFocusChangeListener { view, hasFocus ->
         if (hasFocus) {
+            onFocus?.invoke()
             view.animate().scaleX(scale).scaleY(scale)
                 .setDuration(180).setInterpolator(OvershootInterpolator(2f)).start()
         } else {
             view.animate().scaleX(1f).scaleY(1f)
                 .setDuration(140).setInterpolator(DecelerateInterpolator()).start()
         }
+    }
+}
+
+/**
+ * Sons da interface, bem baixinhos.
+ * Para mudar o volume, ajuste TICK_VOL e INTRO_VOL (0.0 a 1.0).
+ */
+class UiSounds(context: Context) {
+
+    companion object {
+        const val TICK_VOL = 0.18f
+        const val INTRO_VOL = 0.30f
+    }
+
+    private val pool: SoundPool
+    private var tickId = 0
+    private var introId = 0
+    @Volatile private var tickReady = false
+    @Volatile private var introReady = false
+    @Volatile private var introWanted = false
+    private var lastTick = 0L
+
+    init {
+        val attrs = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+        pool = SoundPool.Builder().setMaxStreams(3).setAudioAttributes(attrs).build()
+        pool.setOnLoadCompleteListener { sp, id, status ->
+            if (status == 0) {
+                if (id == tickId) tickReady = true
+                if (id == introId) {
+                    introReady = true
+                    // a intro começou antes do som terminar de carregar
+                    if (introWanted) {
+                        introWanted = false
+                        sp.play(id, INTRO_VOL, INTRO_VOL, 1, 0, 1f)
+                    }
+                }
+            }
+        }
+        tickId = pool.load(context, R.raw.tick, 1)
+        introId = pool.load(context, R.raw.intro, 1)
+    }
+
+    fun playIntro() {
+        if (introReady) pool.play(introId, INTRO_VOL, INTRO_VOL, 1, 0, 1f)
+        else introWanted = true
+    }
+
+    fun tick() {
+        if (!tickReady) return
+        val now = SystemClock.uptimeMillis()
+        if (now - lastTick < 55) return
+        lastTick = now
+        val rate = 0.96f + Random.nextFloat() * 0.08f
+        pool.play(tickId, TICK_VOL, TICK_VOL, 1, 0, rate)
+    }
+
+    fun release() {
+        pool.release()
     }
 }
 
@@ -64,6 +130,8 @@ class MainActivity : Activity() {
     private val columns = 8
     private var appsShown = false
     private var contentStartAt = 0L
+    private var tickAfter = 0L
+    private lateinit var sounds: UiSounds
 
     private val handler = Handler(Looper.getMainLooper())
     private val statusTask = object : Runnable {
@@ -74,6 +142,11 @@ class MainActivity : Activity() {
     }
 
     private fun dp(v: Float) = v * resources.displayMetrics.density
+
+    // Toca o "tick" de navegação (não durante a intro)
+    private fun tick() {
+        if (SystemClock.uptimeMillis() >= tickAfter) sounds.tick()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,16 +161,37 @@ class MainActivity : Activity() {
 
         setContentView(R.layout.activity_main)
         hideSystemBars()
+        sounds = UiSounds(this)
 
         // Tamanho do ícone proporcional à tela (menor no celular, maior na TV)
         val dm = resources.displayMetrics
         val usable = dm.widthPixels - (80 + 32) * dm.density
         val iconPx = (usable / columns * 0.5f).toInt()
-        adapter = AppAdapter(iconPx) { item, v -> startApp(item, v) }
+        adapter = AppAdapter(iconPx, { item, v -> startApp(item, v) }, { tick() })
 
         val grid = findViewById<RecyclerView>(R.id.grid)
         grid.layoutManager = GridLayoutManager(this, columns)
         grid.adapter = adapter
+
+        // Som de "scroll" ao arrastar a lista com o dedo
+        grid.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            private var dragging = false
+            private var acc = 0f
+
+            override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                dragging = newState == RecyclerView.SCROLL_STATE_DRAGGING
+                if (dragging) acc = 0f
+            }
+
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                if (!dragging) return
+                acc += abs(dy)
+                if (acc > dp(56f)) {
+                    acc = 0f
+                    tick()
+                }
+            }
+        })
 
         // Orbe e atalhos da barra de tarefas
         findViewById<View>(R.id.orb).setOnClickListener { openSettings() }
@@ -112,13 +206,14 @@ class MainActivity : Activity() {
         }
         listOf(
             R.id.orb, R.id.qWifi, R.id.qBt, R.id.qSound, R.id.qDisplay, R.id.qStorage, R.id.qApps
-        ).forEach { popOnFocus(findViewById(it), 1.12f) }
+        ).forEach { popOnFocus(findViewById(it), 1.12f) { tick() } }
 
         // Intro rápida (~0,9 s)
         val layer = findViewById<View>(R.id.introLayer)
         if (!introPlayed) {
             introPlayed = true
             contentStartAt = SystemClock.uptimeMillis() + 390
+            tickAfter = contentStartAt + 700
             prepareIntro()
             layer.post { playIntro() }
         } else {
@@ -144,6 +239,7 @@ class MainActivity : Activity() {
         val orb = findViewById<View>(R.id.introOrb)
         val text = findViewById<View>(R.id.introText)
         val decel = DecelerateInterpolator(1.8f)
+        sounds.playIntro()
 
         // 1) Orbe "estoura" na tela e o nome aparece
         orb.animate().alpha(1f).scaleX(1f).scaleY(1f)
@@ -211,6 +307,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         executor.shutdown()
+        sounds.release()
         super.onDestroy()
     }
 
@@ -328,7 +425,8 @@ class MainActivity : Activity() {
 
 class AppAdapter(
     private val iconPx: Int,
-    private val onClick: (AppItem, View) -> Unit
+    private val onClick: (AppItem, View) -> Unit,
+    private val onFocusTick: () -> Unit
 ) : RecyclerView.Adapter<AppAdapter.Holder>() {
 
     private var items: List<AppItem> = emptyList()
@@ -359,7 +457,7 @@ class AppAdapter(
             height = iconPx
         }
         holder.label.setTextSize(TypedValue.COMPLEX_UNIT_PX, iconPx * 0.26f)
-        popOnFocus(view, 1.08f)
+        popOnFocus(view, 1.08f) { onFocusTick() }
         return holder
     }
 

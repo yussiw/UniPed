@@ -20,7 +20,7 @@
         android:allowBackup="false"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="UniPed"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        android:theme="@style/Theme.UniPed">
 
         <activity
             android:name=".MainActivity"
@@ -29,17 +29,14 @@
             android:stateNotNeeded="true"
             android:screenOrientation="landscape">
 
-            <!-- Aparece como app normal (celular, para teste) -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Aparece na lista de apps da Android TV -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
-            <!-- Pode ser escolhido como tela inicial (Home) -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />

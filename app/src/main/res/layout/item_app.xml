@@ -2,24 +2,24 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="4dp"
+    android:layout_margin="3dp"
     android:background="@drawable/item_bg"
     android:clickable="true"
     android:focusable="true"
     android:gravity="center_horizontal"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="8dp">
 
     <ImageView
         android:id="@+id/icon"
-        android:layout_width="64dp"
-        android:layout_height="64dp" />
+        android:layout_width="48dp"
+        android:layout_height="48dp" />
 
     <TextView
         android:id="@+id/label"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="4dp"
         android:ellipsize="end"
         android:gravity="center"
         android:maxLines="1"
@@ -28,5 +28,5 @@
         android:shadowDy="1"
         android:shadowRadius="3"
         android:textColor="#FFFFFF"
-        android:textSize="14sp" />
+        android:textSize="12sp" />
 </LinearLayout>

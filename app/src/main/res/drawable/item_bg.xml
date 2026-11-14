@@ -1,16 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <gradient
+                        android:angle="270"
+                        android:startColor="#8CBFE9FF"
+                        android:endColor="#4D5CA8E8" />
+                    <stroke android:width="2dp" android:color="#E6FFFFFF" />
+                    <corners android:radius="10dp" />
+                </shape>
+            </item>
+            <item
+                android:bottom="56dp"
+                android:left="2dp"
+                android:right="2dp"
+                android:top="2dp">
+                <shape android:shape="rectangle">
+                    <gradient
+                        android:angle="270"
+                        android:startColor="#66FFFFFF"
+                        android:endColor="#14FFFFFF" />
+                    <corners
+                        android:topLeftRadius="8dp"
+                        android:topRightRadius="8dp" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <item android:state_pressed="true">
         <shape android:shape="rectangle">
-            <solid android:color="#2A3A5C" />
-            <stroke android:width="2dp" android:color="#6EA8FF" />
-            <corners android:radius="12dp" />
+            <solid android:color="#665CA8E8" />
+            <stroke android:width="2dp" android:color="#E6FFFFFF" />
+            <corners android:radius="10dp" />
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
             <solid android:color="#00000000" />
-            <corners android:radius="12dp" />
+            <corners android:radius="10dp" />
         </shape>
     </item>
 </selector>

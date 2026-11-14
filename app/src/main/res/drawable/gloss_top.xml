@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reflexo de vidro na metade de cima -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#38FFFFFF"
+        android:endColor="#06FFFFFF" />
+    <corners
+        android:topLeftRadius="14dp"
+        android:topRightRadius="14dp" />
+</shape>

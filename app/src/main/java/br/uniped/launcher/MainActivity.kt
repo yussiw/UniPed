@@ -30,6 +30,8 @@ class MainActivity : Activity() {
         val grid = findViewById<RecyclerView>(R.id.grid)
         grid.layoutManager = GridLayoutManager(this, 6)
         grid.adapter = adapter
+
+        findViewById<View>(R.id.orb).setOnClickListener { openSettings() }
     }
 
     override fun onResume() {
@@ -51,13 +53,17 @@ class MainActivity : Activity() {
     // Botão MENU do controle abre as configurações
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_MENU) {
-            try {
-                startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            } catch (_: ActivityNotFoundException) {
-            }
+            openSettings()
             return true
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    private fun openSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: ActivityNotFoundException) {
+        }
     }
 
     private fun loadApps() {
@@ -109,9 +115,9 @@ class AppAdapter(private val onClick: (AppItem) -> Unit) :
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
         val view = LayoutInflater.from(parent.context).inflate(R.layout.item_app, parent, false)
-        // Efeito de foco leve (a GPU Mali-450 é fraca: sem animações pesadas)
+        // Efeito de foco leve (a GPU Mali-450 é fraca)
         view.setOnFocusChangeListener { v, hasFocus ->
-            val scale = if (hasFocus) 1.08f else 1f
+            val scale = if (hasFocus) 1.06f else 1f
             v.animate().scaleX(scale).scaleY(scale).setDuration(120).start()
         }
         return Holder(view)

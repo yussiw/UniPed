@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fundo estilo Vista "Aurora": gradiente + brilhos suaves -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="315"
+                android:startColor="#0B6A6F"
+                android:centerColor="#0B3F73"
+                android:endColor="#061A33" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:centerX="0.85"
+                android:centerY="0.1"
+                android:gradientRadius="480dp"
+                android:startColor="#6647E0C8"
+                android:endColor="#0047E0C8"
+                android:type="radial" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:centerX="0.1"
+                android:centerY="0.95"
+                android:gradientRadius="520dp"
+                android:startColor="#6630A0FF"
+                android:endColor="#0030A0FF"
+                android:type="radial" />
+        </shape>
+    </item>
+</layer-list>

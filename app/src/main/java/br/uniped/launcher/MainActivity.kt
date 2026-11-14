@@ -1,12 +1,24 @@
 package br.uniped.launcher
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.app.ActivityOptions
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.drawable.Drawable
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.os.StatFs
+import android.os.SystemClock
 import android.provider.Settings
+import android.text.format.Formatter
 import android.util.TypedValue
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -15,19 +27,53 @@ import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.view.animation.AccelerateInterpolator
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import java.util.concurrent.Executors
+import kotlin.math.max
 
 data class AppItem(val label: String, val icon: Drawable, val intent: Intent)
 
+/** Efeito de "pulinho" ao receber foco (leve para GPU fraca: só escala). */
+fun popOnFocus(v: View, scale: Float) {
+    v.setOnFocusChangeListener { view, hasFocus ->
+        if (hasFocus) {
+            view.animate().scaleX(scale).scaleY(scale)
+                .setDuration(180).setInterpolator(OvershootInterpolator(2f)).start()
+        } else {
+            view.animate().scaleX(1f).scaleY(1f)
+                .setDuration(140).setInterpolator(DecelerateInterpolator()).start()
+        }
+    }
+}
+
 class MainActivity : Activity() {
+
+    companion object {
+        // A intro toca uma vez por processo (não toda vez que voltar para a Home)
+        private var introPlayed = false
+    }
 
     private lateinit var adapter: AppAdapter
     private val executor = Executors.newSingleThreadExecutor()
     private val columns = 8
+    private var appsShown = false
+    private var contentStartAt = 0L
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val statusTask = object : Runnable {
+        override fun run() {
+            updateStatus()
+            handler.postDelayed(this, 5000)
+        }
+    }
+
+    private fun dp(v: Float) = v * resources.displayMetrics.density
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,14 +93,82 @@ class MainActivity : Activity() {
         val dm = resources.displayMetrics
         val usable = dm.widthPixels - (80 + 32) * dm.density
         val iconPx = (usable / columns * 0.5f).toInt()
-        adapter = AppAdapter(iconPx) { startApp(it) }
+        adapter = AppAdapter(iconPx) { item, v -> startApp(item, v) }
 
         val grid = findViewById<RecyclerView>(R.id.grid)
         grid.layoutManager = GridLayoutManager(this, columns)
         grid.adapter = adapter
 
+        // Orbe e atalhos da barra de tarefas
         findViewById<View>(R.id.orb).setOnClickListener { openSettings() }
+        bindQuick(R.id.qWifi, Settings.ACTION_WIFI_SETTINGS)
+        bindQuick(R.id.qBt, Settings.ACTION_BLUETOOTH_SETTINGS)
+        bindQuick(R.id.qSound, Settings.ACTION_SOUND_SETTINGS)
+        bindQuick(R.id.qDisplay, Settings.ACTION_DISPLAY_SETTINGS)
+        bindQuick(R.id.qStorage, Settings.ACTION_INTERNAL_STORAGE_SETTINGS)
+        bindQuick(R.id.qApps, Settings.ACTION_APPLICATION_SETTINGS)
+        findViewById<View>(R.id.netStatus).setOnClickListener {
+            openSettings(Settings.ACTION_WIFI_SETTINGS)
+        }
+        listOf(
+            R.id.orb, R.id.qWifi, R.id.qBt, R.id.qSound, R.id.qDisplay, R.id.qStorage, R.id.qApps
+        ).forEach { popOnFocus(findViewById(it), 1.12f) }
+
+        // Intro rápida (~0,9 s)
+        val layer = findViewById<View>(R.id.introLayer)
+        if (!introPlayed) {
+            introPlayed = true
+            contentStartAt = SystemClock.uptimeMillis() + 390
+            prepareIntro()
+            layer.post { playIntro() }
+        } else {
+            layer.visibility = View.GONE
+        }
     }
+
+    // ---------- Intro ----------
+
+    private fun prepareIntro() {
+        findViewById<View>(R.id.introOrb).apply { alpha = 0f; scaleX = 0.5f; scaleY = 0.5f }
+        findViewById<View>(R.id.introText).apply { alpha = 0f; translationY = dp(12f) }
+        findViewById<View>(R.id.titleRow).apply { alpha = 0f; translationY = -dp(14f) }
+        findViewById<View>(R.id.panel).apply {
+            alpha = 0f; translationY = dp(34f); scaleX = 0.97f; scaleY = 0.97f
+        }
+        findViewById<View>(R.id.taskbar).apply { alpha = 0f; translationY = dp(52f) }
+    }
+
+    private fun playIntro() {
+        val layer = findViewById<View>(R.id.introLayer)
+        val group = findViewById<View>(R.id.introGroup)
+        val orb = findViewById<View>(R.id.introOrb)
+        val text = findViewById<View>(R.id.introText)
+        val decel = DecelerateInterpolator(1.8f)
+
+        // 1) Orbe "estoura" na tela e o nome aparece
+        orb.animate().alpha(1f).scaleX(1f).scaleY(1f)
+            .setDuration(240).setInterpolator(OvershootInterpolator(1.8f)).start()
+        text.animate().alpha(1f).translationY(0f)
+            .setStartDelay(100).setDuration(220).setInterpolator(decel).start()
+
+        // 2) A intro dá um zoom e some, enquanto a Home desliza para o lugar
+        handler.postDelayed({
+            group.animate().scaleX(1.25f).scaleY(1.25f).alpha(0f)
+                .setDuration(260).setInterpolator(AccelerateInterpolator()).start()
+            layer.animate().alpha(0f).setDuration(260)
+                .withEndAction { layer.visibility = View.GONE }.start()
+
+            findViewById<View>(R.id.titleRow).animate().alpha(1f).translationY(0f)
+                .setDuration(300).setInterpolator(decel).start()
+            findViewById<View>(R.id.panel).animate().alpha(1f).translationY(0f)
+                .scaleX(1f).scaleY(1f)
+                .setStartDelay(40).setDuration(360).setInterpolator(decel).start()
+            findViewById<View>(R.id.taskbar).animate().alpha(1f).translationY(0f)
+                .setStartDelay(100).setDuration(320).setInterpolator(decel).start()
+        }, 330L)
+    }
+
+    // ---------- Barras do sistema ----------
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
@@ -81,12 +195,21 @@ class MainActivity : Activity() {
         }
     }
 
+    // ---------- Ciclo de vida ----------
+
     override fun onResume() {
         super.onResume()
         loadApps()
+        handler.post(statusTask)
+    }
+
+    override fun onPause() {
+        handler.removeCallbacks(statusTask)
+        super.onPause()
     }
 
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
         executor.shutdown()
         super.onDestroy()
     }
@@ -106,12 +229,63 @@ class MainActivity : Activity() {
         return super.onKeyDown(keyCode, event)
     }
 
-    private fun openSettings() {
+    // ---------- Configurações ----------
+
+    private fun bindQuick(id: Int, action: String) {
+        findViewById<View>(id).setOnClickListener { openSettings(action) }
+    }
+
+    // Abre uma tela de configurações; se a TV não tiver, cai nas configurações gerais
+    private fun openSettings(action: String = Settings.ACTION_SETTINGS) {
         try {
-            startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (_: ActivityNotFoundException) {
+            startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: Exception) {
+            if (action != Settings.ACTION_SETTINGS) openSettings()
         }
     }
+
+    // ---------- Status (rede, disco, RAM) ----------
+
+    private fun updateStatus() {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val active = cm.activeNetwork
+        val caps = if (active != null) cm.getNetworkCapabilities(active) else null
+        val text: String
+        val color: Int
+        if (caps == null) {
+            text = "Sem conexão"
+            color = 0xFFFF6B6B.toInt()
+        } else {
+            val tipo = when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Dados móveis"
+                else -> "Rede"
+            }
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                text = "$tipo · Conectado"
+                color = 0xFF7CFC9A.toInt()
+            } else {
+                text = "$tipo · Sem internet"
+                color = 0xFFFFD166.toInt()
+            }
+        }
+        val net = findViewById<TextView>(R.id.netStatus)
+        net.text = text
+        net.compoundDrawableTintList = ColorStateList.valueOf(color)
+
+        val stat = StatFs(Environment.getDataDirectory().path)
+        findViewById<TextView>(R.id.diskStatus).text =
+            "Disco: " + Formatter.formatFileSize(this, stat.availableBytes) + " livres"
+
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val mi = ActivityManager.MemoryInfo()
+        am.getMemoryInfo(mi)
+        findViewById<TextView>(R.id.ramStatus).text =
+            "RAM: " + Formatter.formatFileSize(this, mi.availMem) + " livre"
+    }
+
+    // ---------- Apps ----------
 
     private fun loadApps() {
         executor.execute {
@@ -133,13 +307,20 @@ class MainActivity : Activity() {
             }
 
             val sorted = found.values.sortedBy { it.label.lowercase() }
-            runOnUiThread { adapter.submit(sorted) }
+            runOnUiThread {
+                val first = !appsShown
+                appsShown = true
+                adapter.entranceStartAt = max(contentStartAt, SystemClock.uptimeMillis())
+                adapter.submit(sorted, first)
+            }
         }
     }
 
-    private fun startApp(item: AppItem) {
+    // Abre o app "crescendo" a partir do ícone clicado
+    private fun startApp(item: AppItem, from: View) {
         try {
-            startActivity(item.intent)
+            val opts = ActivityOptions.makeScaleUpAnimation(from, 0, 0, from.width, from.height)
+            startActivity(item.intent, opts.toBundle())
         } catch (_: ActivityNotFoundException) {
         }
     }
@@ -147,13 +328,20 @@ class MainActivity : Activity() {
 
 class AppAdapter(
     private val iconPx: Int,
-    private val onClick: (AppItem) -> Unit
+    private val onClick: (AppItem, View) -> Unit
 ) : RecyclerView.Adapter<AppAdapter.Holder>() {
 
     private var items: List<AppItem> = emptyList()
 
-    fun submit(newItems: List<AppItem>) {
+    // Entrada em cascata: só nos primeiros itens visíveis, só na primeira exibição
+    var entranceStartAt = 0L
+    private var entranceUntil = 0L
+
+    fun submit(newItems: List<AppItem>, animate: Boolean) {
+        val same = newItems.map { it.intent.component } == items.map { it.intent.component }
+        if (same && !animate) return
         items = newItems
+        if (animate) entranceUntil = SystemClock.uptimeMillis() + 600
         notifyDataSetChanged()
     }
 
@@ -171,12 +359,7 @@ class AppAdapter(
             height = iconPx
         }
         holder.label.setTextSize(TypedValue.COMPLEX_UNIT_PX, iconPx * 0.26f)
-
-        // Efeito de foco leve (a GPU Mali-450 é fraca)
-        view.setOnFocusChangeListener { v, hasFocus ->
-            val scale = if (hasFocus) 1.06f else 1f
-            v.animate().scaleX(scale).scaleY(scale).setDuration(120).start()
-        }
+        popOnFocus(view, 1.08f)
         return holder
     }
 
@@ -184,7 +367,29 @@ class AppAdapter(
         val item = items[position]
         holder.icon.setImageDrawable(item.icon)
         holder.label.text = item.label
-        holder.itemView.setOnClickListener { onClick(item) }
+        holder.itemView.setOnClickListener { onClick(item, holder.itemView) }
+
+        val v = holder.itemView
+        v.animate().cancel()
+        val now = SystemClock.uptimeMillis()
+        if (now < entranceUntil && position < 32) {
+            val columns = 8
+            val row = position / columns
+            val col = position % columns
+            val delay = max(0L, entranceStartAt - now) + row * 40L + col * 18L
+            v.alpha = 0f
+            v.translationY = iconPx * 0.3f
+            v.scaleX = 0.9f
+            v.scaleY = 0.9f
+            v.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f)
+                .setStartDelay(delay).setDuration(300)
+                .setInterpolator(DecelerateInterpolator(1.6f)).start()
+        } else {
+            v.alpha = 1f
+            v.translationY = 0f
+            v.scaleX = 1f
+            v.scaleY = 1f
+        }
     }
 
     override fun getItemCount() = items.size
